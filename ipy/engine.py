@@ -7,8 +7,7 @@ from .functions import *
 from .constants import *
 
 # todo gotos and if statements
-# todo substractions and other operations
-# todo line numbers in errors
+# todo math library
 
 
 class ExitCode:
@@ -25,13 +24,21 @@ class Variable:
 
 
 class Instruction:
-    def __init__(self, line:str):
-        self.line: str = line
+    def __init__(self, line:str, line_number:int=None):
+        self.orig_line: str = line
+        self.line: int = line_number
         self.orig_instruction: str = line.split(' ')[0]
         self.orig_args: str = ' '.join(line.split(' ')[1:])
 
         self.instruction: str = self.orig_instruction.upper()
         self.args: List[str] = split_args(self.orig_args)
+
+
+class Function:
+    def __init__(self, name: str, args: Dict[str,int], code:List[Instruction]):
+        self.name: str = name # function name
+        self.args: Dict[str,int] = args # arguments as dict with keys as names and values as types
+        self.code: List[Instruction] = code # list of instructions to execute
 
 
 class IPYP:
@@ -42,7 +49,7 @@ class IPYP:
         self.code: str = code # project source code
         self.compiled: List[Instruction] = [] # list of all compiled instructions
         self.pre: List[Instruction] = [] # list of all instructions excluding functions and loop
-        self.functions: Dict[str, List[Instruction]] = {} # list of functions
+        self.functions: Dict[str, Function] = {} # list of functions
         self.loop: List[Instruction] = [] # list of instructions to run every frame
 
         self.arrays: Dict[str, list] = {} # all arrays
@@ -52,6 +59,7 @@ class IPYP:
         self.scope: Dict[str, Variable] = {} # all variables
         self.size_update_callback: Callable = None # callback when the size of the window is changed
         self.fps: int = 0 # current frame rate (unlimited by default)
+        self.surface: pg.Surface = None # surface to draw things on
 
         self.compile(self.code)
 
@@ -68,61 +76,117 @@ class IPYP:
         code = [i.strip(' ') for i in code.split(';')]
         # removing empty strings
         code = [i for i in code if i != '']
-        upper_code = [i.upper() for i in code]
+        commands = [i.upper().split(' ')[0] for i in code]
 
         # catching errors
-        if 'LOOP' not in upper_code:
+        if 'LOOP' not in commands:
             raise EngineException('LOOP command not found', self.filename)
-        if 'ENDLOOP' not in upper_code:
+        if 'ENDLOOP' not in commands:
             raise EngineException('ENDLOOP command not found', self.filename)
 
-        self.compiled = [Instruction(line) for line in code]
+        self.compiled = [Instruction(line, num+1) for num, line in enumerate(code)]
 
         # initial commands
         index = 0
         skip: List[str] = []
         pre: List[str] = []
         while index < len(code):
-            if upper_code[index] == 'LOOP':
+            if commands[index] == 'LOOP':
                 skip.append('loop')
 
-            elif upper_code[index] == 'FUNCTION':
+            elif commands[index].startswith('FUNCTION'):
                 skip.append('function')
-
-            if upper_code[index] == 'ENDLOOP':
-                if 'loop' not in skip:
-                    raise EngineException('Unexpected ENDLOOP', self.filename)
-                skip.append('loop')
-
-            elif upper_code[index] == 'ENDFUNCTION':
-                if 'function' not in skip:
-                    raise EngineException('Unexpected ENDFUNCTION', self.filename)
-                skip.append('function')
-
+                
             if skip == []:
-                pre.append(code[index])
+                pre.append((code[index], index+1))
+
+            if  commands[index] == 'ENDLOOP':
+                if 'loop' not in skip:
+                    raise EngineException('Unexpected ENDLOOP', self.filename, index+1)
+                skip.remove('loop')
+
+            elif commands[index] == 'ENDFUNCTION':
+                if 'function' not in skip:
+                    raise EngineException('Unexpected ENDFUNCTION', self.filename, index+1)
+                skip.remove('function')
+
+            if commands[index] in ['ARGS', 'ENDARGS'] and 'function' not in skip:
+                raise EngineException(f'Unexpected {commands[index]}', self.filename, index+1)
 
             index += 1
 
-        self.pre = [Instruction(i) for i in pre]
+        self.pre = [Instruction(line[0], line[1]) for line in pre]
 
         # loop commands
         index = 0
         isloop = False
         loop = []
         while index < len(code):
-            if upper_code[index] == 'LOOP':
+            if commands[index] == 'LOOP':
                 isloop = True
 
-            if upper_code[index] == 'ENDLOOP':
+            if commands[index] == 'ENDLOOP':
                 isloop = False
-                self.loop = [Instruction(i) for i in loop]
+                self.loop = [Instruction(line[0], line[1]) for line in loop]
 
             if isloop:
-                if upper_code[index] != 'LOOP':
-                    loop.append(code[index])
+                if commands[index] != 'LOOP':
+                    loop.append((code[index], index+1))
             else:
                 loop = []
+
+            index += 1
+
+        # functions
+        index = 0
+        isfunction = False
+        isargs = False
+        function = []
+        name = None
+        args: Dict[str, int] = {}
+
+        while index < len(code):
+            if commands[index] == 'FUNCTION':
+                isfunction = True
+                if len(code[index].split(' ')) != 2:
+                    raise EngineException(f'FUNCTION requires exactly 1 argument', self.filename, index+1)
+                name = code[index].split(' ')[1]
+                self.check_keyword(name)
+
+            if commands[index] == 'ENDFUNCTION':
+                isfunction = False
+                self.functions[name] = Function(
+                    name, args,
+                    [Instruction(line[0], line[1]) for line in function]
+                )
+                name = None
+                args: Dict[str, int] = {}
+
+            if isfunction:
+                if commands[index] != 'FUNCTION':
+                    if commands[index] == 'ARGS':
+                        isargs = True
+                    if commands[index] == 'ENDARGS':
+                        isargs = False
+
+                    if not isargs:
+                        if commands[index] != 'ENDARGS':
+                            function.append((code[index], index+1))
+                    elif commands[index] != 'ARGS':
+                        arg_args = code[index].split(' ')
+                        if len(arg_args) != 2:
+                            raise EngineException(
+                                f'Function argument definitions need exactly 2 values (name and type)',
+                                self.filename, index+1
+                            )
+                        
+                        self.check_keyword(arg_args[0])
+                        if arg_args[1].upper() not in TYPES:
+                            raise EngineException(f'Unknown type {arg_args[1]}', self.filename, index+1)
+                        args[arg_args[0]] = TYPES[arg_args[1].upper()]
+                        
+            else:
+                function = []
 
             index += 1
 
@@ -160,6 +224,36 @@ class IPYP:
         self.size_update_callback()
 
 
+    def call(self, function:str, args:List[Variable]) -> Variable:
+        '''
+        Calls a function.
+        '''
+        if function not in self.functions:
+            raise EngineException(f'Unknown function {function}', self.filename)
+        func: Function = self.functions[function]
+
+        if len(args) != len(func.args):
+            raise EngineException(f'Function {function} requires exactly {len(func.args)} arguments', self.filename)
+        
+        flat_args = [(i, func.args[i]) for i in func.args]
+
+        for index, i in enumerate(args):
+            if flat_args[index][1] != ANY and flat_args[index][1] != i.type:
+                raise EngineException(
+                    f'Argument {flat_args[index][0]} requires type {flat_args[index][1]}, not {i.type}',
+                    self.filename
+                )
+
+        [self.set_variable(f'*{i}', str(args[index].value), force=True) for index, i in enumerate(func.args)]
+        variable: Variable = self.run_code(func.code)
+        # cleaning up
+        for i in [f'*{var}' for var in func.args]:
+            if i in self.scope:
+                del self.scope[i]
+
+        return variable
+
+
     def get_variable(self, name:str, type:int=ANY) -> Any:
         '''
         Returns variable data if found. Otherwise, throws exception.
@@ -179,6 +273,9 @@ class IPYP:
     
 
     def check_keyword(self, text:str):
+        '''
+        Checks if using a keyword as an argument is fine.
+        '''
         if True in [i in FORBIDDEN_KEYWORD_CHARACTERS for i in text]:
             raise EngineException(
                 f'Keyword {text} must not contain any of the following characters: '\
@@ -188,42 +285,53 @@ class IPYP:
     
 
     def get_component(self, value:str, type:List[int]=ANY):
+        '''
+        Returns a `Variable` object from a command argument.
+        '''
         # null type
-        if value.upper() == NULL:
+        if value.upper() == NULL or value == 'None':
             if type != ANY and NULL not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type null', self.filename)
             return Variable(value, NULL, None)
+        
         # bool
         elif value.upper() in ['TRUE','FALSE']:
             if type != ANY and BOOL not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type bool', self.filename)
-            return Variable(value, BOOL, value.upper()=='True')
+            return Variable(value, BOOL, value.upper()=='TRUE')
+        
         # integer
         elif isint(value):
             if type != ANY and INTEGER not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type integer', self.filename)
             return Variable(value, INTEGER, int(value))
+        
         # float
         elif isnumber(value):
             if type != ANY and FLOAT not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type float', self.filename)
             return Variable(value, FLOAT, float(value))
+        
         # string
         elif value.startswith('"') and value.endswith('"'):
             if type != ANY and STRING not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type string', self.filename)
             return Variable(value, STRING, value[1:-1])
+        
         # function
         elif value.startswith('$') and value.endswith('$'):
-            variable: Variable = self.call(value, string=True)
+            value = value[1:-1].split(' ')
+            variable: Variable = self.call(value[0], [self.get_component(i) for i in value[1:]])
             if type != ANY and variable.type not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type {variable.type}', self.filename)
             return variable
+        
         # another variable
         elif value in self.scope:
             if type != ANY and self.scope[value].type not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type {self.scope[value].type}', self.filename)
             return self.scope[value]
+        
         # error
         else:
             raise EngineException(
@@ -232,12 +340,12 @@ class IPYP:
             )
         
     
-    def set_variable(self, name:str, value:str):
+    def set_variable(self, name:str, value:str, force:bool=False):
         # checking name
         if isnumber(name):
             raise EngineException('Variable name must not be numeric', self.filename)
         
-        if True in [i in name for i in FORBIDDEN_KEYWORD_CHARACTERS]:
+        if not force and True in [i in name for i in FORBIDDEN_KEYWORD_CHARACTERS]:
             raise EngineException(
                 f'Variable name must not contain any of the following characters: '\
                     +FORBIDDEN_KEYWORD_CHARACTERS,
@@ -249,7 +357,7 @@ class IPYP:
         self.scope[name] = value
 
          
-    def run_code(self, code: List[Instruction], surface:pg.Surface=None):
+    def run_code(self, code: List[Instruction]) -> Variable:
         '''
         Runs inputted code with goto points in local scope.
         '''
@@ -265,129 +373,194 @@ class IPYP:
             args = i.args
 
             # operations
+            match i.instruction:
+                # noop
+                case 'NOOP':
+                    continue
 
-            # noop
-            if i.instruction == 'NOOP':
-                continue
+                # if there is an unexpected LOOP or ENDLOOP command
+                case 'LOOP'|'ENDLOOP'|'FUNCTION'|'ENDFUNCTION'|'ARGS'|'ENDARGS':
+                    raise EngineException(f'Unexpected {i.instruction} command', self.filename, i.line)
 
-            # if there is an unexpected LOOP or ENDLOOP command
-            elif i.instruction in ['LOOP', 'ENDLOOP']:
-                raise EngineException('Unexpected LOOP or ENDLOOP command(-s)', self.filename)
+                # finish execution of current block
+                case 'BREAK':
+                    finished = True
+                    break
 
-            # finish execution of current block
-            elif i.instruction == 'BREAK':
-                finished = True
-                break
+                # returning value
+                case 'RETURN':
+                    if len(args) != 1:
+                        raise EngineException(f'RETURN requires exactly 1 argument', self.filename, i.line)
+                    finished = True
+                    return self.get_component(args[0])
 
-            # create goto point
-            elif i.instruction == 'POINT':
-                if len(args) != 1:
-                    raise EngineException(f'POINT requires exactly 1 argument', self.filename)
-                self.check_keyword(args[0])
-                goto_indexes[args[0]] = int(index)
+                # create goto point
+                case 'POINT':
+                    if len(args) != 1:
+                        raise EngineException(f'POINT requires exactly 1 argument', self.filename, i.line)
+                    self.check_keyword(args[0])
+                    goto_indexes[args[0]] = int(index)
 
-            # goto command
-            elif i.instruction == 'GOTO':
-                if len(args) != 1:
-                    raise EngineException(f'GOTO requires exactly 1 argument', self.filename)
-                if args[0] not in goto_indexes:
-                    raise EngineException(f'Unknown GOTO point: {args[0]}', self.filename)
-                index = goto_indexes[args[0]]
-                continue
+                # goto command
+                case 'GOTO':
+                    if len(args) != 1:
+                        raise EngineException(f'GOTO requires exactly 1 argument', self.filename, i.line)
+                    if args[0] not in goto_indexes:
+                        raise EngineException(f'Unknown GOTO point: {args[0]}', self.filename, i.line)
+                    index = goto_indexes[args[0]]
+                    continue
 
-            
-            # variable management
+                # function calling
+                case 'CALL':
+                    if len(args) < 1:
+                        raise EngineException(f'CALL requires at least 1 argument', self.filename, i.line)
+                    self.check_keyword(args[0])
+                    func_args = args[1:]
+                    self.call(args[0], [self.get_component(arg) for arg in func_args])
 
-            # assign a value to a variable
-            elif i.instruction == 'ASSIGN':
-                if len(args) != 2:
-                    raise EngineException(f'ASSIGN requires exactly 2 arguments', self.filename)
-                self.check_keyword(args[0])
-                self.set_variable(args[0], args[1])
-
-
-            # math
-
-            # add a value to a variable
-            elif i.instruction == 'ADD':
-                if len(args) != 2:
-                    raise EngineException(f'ADD requires exactly 2 arguments', self.filename)
-                self.check_keyword(args[0])
-                var = self.get_component(args[1], type=[INTEGER,FLOAT])
-                if args[0] not in self.scope:
-                    raise EngineException(f'Unknown variable {args[0]}', self.filename)
                 
-                if var.type == FLOAT and self.scope[args[0]].type == INTEGER:
+                # variable management
+
+                # assign a value to a global variable
+                case 'ASSIGN':
+                    if len(args) != 2:
+                        raise EngineException(f'GLOBAL requires exactly 2 arguments', self.filename, i.line)
+                    self.check_keyword(args[0])
+                    self.set_variable(args[0], args[1])
+
+
+                # math
+
+                # add a value to a variable
+                case 'ADD':
+                    if len(args) != 2:
+                        raise EngineException(f'ADD requires exactly 2 arguments', self.filename, i.line)
+                    
+                    self.check_keyword(args[0])
+                    var = self.get_component(args[1], type=[INTEGER,FLOAT])
+                    if args[0] not in self.scope:
+                        raise EngineException(f'Unknown variable {args[0]}', self.filename, i.line)
+                    
                     self.set_variable(args[0], str(self.scope[args[0]].value+var.value))
-                self.scope[args[0]].value += var.value
 
+                # substract a value from a variable
+                case 'SUB':
+                    if len(args) != 2:
+                        raise EngineException(f'SUB requires exactly 2 arguments', self.filename, i.line)
+                    
+                    self.check_keyword(args[0])
+                    var = self.get_component(args[1], type=[INTEGER,FLOAT])
+                    if args[0] not in self.scope:
+                        raise EngineException(f'Unknown variable {args[0]}', self.filename, i.line)
+                    
+                    self.set_variable(args[0], str(self.scope[args[0]].value-var.value))
 
-            # window management
+                # multiply a variable by a value
+                case 'MUL':
+                    if len(args) != 2:
+                        raise EngineException(f'MUL requires exactly 2 arguments', self.filename, i.line)
+                    
+                    self.check_keyword(args[0])
+                    var = self.get_component(args[1], type=[INTEGER,FLOAT])
+                    if args[0] not in self.scope:
+                        raise EngineException(f'Unknown variable {args[0]}', self.filename, i.line)
+                    
+                    self.set_variable(args[0], str(self.scope[args[0]].value*var.value))
 
-            # set window resolution
-            elif i.instruction == 'SETRES':
-                if len(args) != 2:
-                    raise EngineException(f'SETRES requires exactly 2 arguments', self.filename)
-                x = self.get_component(args[0], type=[INTEGER]).value
-                y = self.get_component(args[1], type=[INTEGER]).value
-                if x <= 0 or y <= 0:
-                    raise EngineException(f'Window size must be greater than 0', self.filename)
-                self.edit_window_size(x, y)
-
-            # set window fps
-            elif i.instruction == 'SETFPS':
-                if len(args) != 1:
-                    raise EngineException(f'SETRES requires exactly 1 argument', self.filename)
-                fps = self.get_component(args[0], type=[INTEGER]).value
-                if fps < 0:
-                    raise EngineException(f'Target FPS must be greater than or equal to zero', self.filename)
-                self.fps = fps
+                # divide a variable by a value
+                case 'DIV':
+                    if len(args) != 2:
+                        raise EngineException(f'DIV requires exactly 2 arguments', self.filename, i.line)
+                    
+                    self.check_keyword(args[0])
+                    var = self.get_component(args[1], type=[INTEGER,FLOAT])
+                    if args[0] not in self.scope:
+                        raise EngineException(f'Unknown variable {args[0]}', self.filename, i.line)
                 
-            # load spritesheet from a file
-            elif i.instruction == 'LOADSHEET':
-                if len(args) != 1:
-                    raise EngineException(f'LOADSHEET requires exactly 1 argument', self.filename)
-                filename = self.get_component(args[0], type=[STRING]).value
-                self.load_spritesheet(filename)
-                
-            # fill window with color and cover everything
-            elif i.instruction == 'FILL':
-                if len(args) != 3:
-                    raise EngineException(f'FILL requires exactly 3 arguments', self.filename)
-                r = self.get_component(args[0], type=[INTEGER]).value
-                g = self.get_component(args[1], type=[INTEGER]).value
-                b = self.get_component(args[2], type=[INTEGER]).value
-                if (r < 0 or r > 255) or (g < 0 or g > 255) or (b < 0 or b > 255):
-                    raise EngineException(f'Color value must be from 0 to 255', self.filename)
-                surface.fill((r,g,b))
-                
-            # draw sprite on top of everything
-            elif i.instruction == 'DRAWSPRITE':
-                if len(args) != 3:
-                    raise EngineException(f'DRAWSPRITE requires exactly 3 arguments', self.filename)
-                sprite = self.get_component(args[0], type=[STRING]).value
-                x = self.get_component(args[1], type=[INTEGER,FLOAT]).value
-                y = self.get_component(args[2], type=[INTEGER,FLOAT]).value
-                if sprite not in self.sprites:
-                    raise EngineException(f'Sprite {sprite} not found', self.filename)
-                surface.blit(self.sprites[sprite], (x, y))
+                    self.set_variable(args[0], str(self.scope[args[0]].value/var.value))
 
-            # unknown command
-            else:
-                raise EngineException(f'Unknown command {i.instruction}', self.filename)
-            
+                # invert a sign in a variable
+                case 'INVERT':
+                    if len(args) != 1:
+                        raise EngineException(f'INVERT requires exactly 1 argument', self.filename, i.line)
+                    
+                    self.check_keyword(args[0])
+                    if args[0] not in self.scope:
+                        raise EngineException(f'Unknown variable {args[0]}', self.filename, i.line)
+                    if self.scope[args[0]].type not in [INTEGER,FLOAT]:
+                        raise EngineException(f'INVERT requires an integer or a float', self.filename, i.line)
+
+                    self.scope[args[0]].value = -self.scope[args[0]].value
+
+
+                # window management
+
+                # set window resolution
+                case 'SETRES':
+                    if len(args) != 2:
+                        raise EngineException(f'SETRES requires exactly 2 arguments', self.filename, i.line)
+                    x = self.get_component(args[0], type=[INTEGER]).value
+                    y = self.get_component(args[1], type=[INTEGER]).value
+                    if x <= 0 or y <= 0:
+                        raise EngineException(f'Window size must be greater than 0', self.filename, i.line)
+                    self.edit_window_size(x, y)
+
+                # set window fps
+                case 'SETFPS':
+                    if len(args) != 1:
+                        raise EngineException(f'SETRES requires exactly 1 argument', self.filename, i.line)
+                    fps = self.get_component(args[0], type=[INTEGER]).value
+                    if fps < 0:
+                        raise EngineException(f'Target FPS must be greater than or equal to zero', self.filename, i.line)
+                    self.fps = fps
+                    
+                # load spritesheet from a file
+                case 'LOADSHEET':
+                    if len(args) != 1:
+                        raise EngineException(f'LOADSHEET requires exactly 1 argument', self.filename, i.line)
+                    filename = self.get_component(args[0], type=[STRING]).value
+                    self.load_spritesheet(filename)
+                    
+                # fill window with color and cover everything
+                case 'FILL':
+                    if len(args) != 3:
+                        raise EngineException(f'FILL requires exactly 3 arguments', self.filename, i.line)
+                    r = self.get_component(args[0], type=[INTEGER]).value
+                    g = self.get_component(args[1], type=[INTEGER]).value
+                    b = self.get_component(args[2], type=[INTEGER]).value
+                    if (r < 0 or r > 255) or (g < 0 or g > 255) or (b < 0 or b > 255):
+                        raise EngineException(f'Color value must be from 0 to 255', self.filename, i.line)
+                    self.surface.fill((r,g,b))
+                    
+                # draw sprite on top of everything
+                case 'DRAWSPRITE':
+                    if len(args) != 3:
+                        raise EngineException(f'DRAWSPRITE requires exactly 3 arguments', self.filename, i.line)
+                    sprite = self.get_component(args[0], type=[STRING]).value
+                    x = self.get_component(args[1], type=[INTEGER,FLOAT]).value
+                    y = self.get_component(args[2], type=[INTEGER,FLOAT]).value
+                    if sprite not in self.sprites:
+                        raise EngineException(f'Sprite {sprite} not found', self.filename, i.line)
+                    self.surface.blit(self.sprites[sprite], (x, y))
+
+                # unknown command
+                case _:
+                    raise EngineException(f'Unknown command {i.instruction}', self.filename, i.line)
+                
             # next command
             index += 1
             if index >= len(code):
                 finished = True
                 break
 
+        return Variable('*RETURN_VALUE', NULL, None)
 
-    def step(self, surface:pg.Surface):
+
+    def step(self):
         '''
         Runs game cycle.
         '''
-        self.run_code(self.loop, surface)
+        self.run_code(self.loop)
 
 
 class App:
@@ -400,6 +573,7 @@ class App:
         self.running: bool = True
         self.window = pg.display.set_mode(self.windowsize)
         self.clock = pg.Clock()
+        self.ipyp.surface = None
 
     def update_size(self):
         '''
@@ -422,8 +596,10 @@ class App:
         # updating rect of the screen
         self.windowrect = pg.Rect((0,0),self.scalesize)
         self.windowrect.center = (self.windowsize[0]/2, self.windowsize[1]/2)
-        self.screen = pg.Surface(self.ipyp.size)
         self.window = pg.display.set_mode(self.windowsize, pg.RESIZABLE)
+
+        # updating game surface
+        self.ipyp.surface = pg.Surface(self.ipyp.size)
 
     def run(self):
         '''
@@ -440,8 +616,8 @@ class App:
                     self.update_size()
 
             self.window.fill((0,0,0))            
-            self.ipyp.step(self.screen)
-            surface = pg.transform.scale(self.screen, self.scalesize)
+            self.ipyp.step()
+            surface = pg.transform.scale(self.ipyp.surface, self.scalesize)
             self.window.blit(surface, self.windowrect)
             pg.display.update()
             self.clock.tick(self.ipyp.fps)
