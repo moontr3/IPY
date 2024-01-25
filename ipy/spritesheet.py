@@ -1,5 +1,5 @@
 from typing import *
-from errors import SpritesheetException
+from .errors import SpritesheetException
 import pygame as pg
 import numpy as np
 

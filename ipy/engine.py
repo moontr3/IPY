@@ -1,17 +1,26 @@
 import pygame as pg
-from spritesheet import IPYS
-from errors import *
 from typing import *
-from functions import *
+
+from .errors import *
+from .spritesheet import IPYS
+from .functions import *
+from .constants import *
+
+# todo gotos and if statements
+# todo substractions and other operations
+# todo line numbers in errors
 
 
-FORBIDDEN_CHARS = '{}"\'=,.$'
+class ExitCode:
+    def __init__(self, success:bool, message:str=''):
+        self.success: bool = success
+        self.message: str = message
 
 
 class Variable:
-    def __init__(self, name:str, type:str, value:Any):
+    def __init__(self, name:str, type:int, value:Any):
         self.name: str = name
-        self.type: str = type
+        self.type: int = type
         self.value: Any = value
 
 
@@ -126,13 +135,14 @@ class IPYP:
             with open(filename, encoding='utf-8') as f:
                 spritesheet = IPYS(f.read(), filename)
                 self.spritesheets.append(spritesheet)
-                for i in spritesheet.sprites:
+
+                for i in spritesheet.surfaces:
                     self.sprites[i] = spritesheet.surfaces[i]
 
         except FileNotFoundError:
-            EngineException(f"File {filename} not found in current working directory")
+            raise EngineException(f"File {filename} not found in current working directory", self.filename)
         except Exception as e:
-            EngineException(f"Could not load spritesheet: {e}")
+            raise EngineException(f"Could not load spritesheet: {e}", self.filename)
 
 
     def edit_window_size(self, sizex:int, sizey:int):
@@ -150,7 +160,7 @@ class IPYP:
         self.size_update_callback()
 
 
-    def get_variable(self, name:str, type:str='any') -> Any:
+    def get_variable(self, name:str, type:int=ANY) -> Any:
         '''
         Returns variable data if found. Otherwise, throws exception.
         '''
@@ -159,7 +169,7 @@ class IPYP:
             raise EngineException(f'Unknown variable {name}', self.filename)
         var = self.scope[name]
         # checking type
-        if type != 'any' and var.type != type:
+        if type != ANY and var.type != type:
             raise EngineException(
                 f'Type {" or ".join(type)} required, but variable {name} has type {var.type}',
                 self.filename
@@ -169,49 +179,49 @@ class IPYP:
     
 
     def check_keyword(self, text:str):
-        if True in [i in FORBIDDEN_CHARS for i in text]:
+        if True in [i in FORBIDDEN_KEYWORD_CHARACTERS for i in text]:
             raise EngineException(
                 f'Keyword {text} must not contain any of the following characters: '\
-                    +FORBIDDEN_CHARS,
+                    +FORBIDDEN_KEYWORD_CHARACTERS,
                 self.filename
             )
     
 
-    def get_component(self, value:str, type:List[str]='any'):
+    def get_component(self, value:str, type:List[int]=ANY):
         # null type
-        if value.upper() == 'NULL':
-            if type != 'any' and 'null' not in type:
+        if value.upper() == NULL:
+            if type != ANY and NULL not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type null', self.filename)
-            return Variable(value, 'null', None)
+            return Variable(value, NULL, None)
         # bool
         elif value.upper() in ['TRUE','FALSE']:
-            if type != 'any' and 'bool' not in type:
+            if type != ANY and BOOL not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type bool', self.filename)
-            return Variable(value, 'bool', value.upper()=='True')
+            return Variable(value, BOOL, value.upper()=='True')
         # integer
         elif isint(value):
-            if type != 'any' and 'integer' not in type:
+            if type != ANY and INTEGER not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type integer', self.filename)
-            return Variable(value, 'integer', int(value))
+            return Variable(value, INTEGER, int(value))
         # float
         elif isnumber(value):
-            if type != 'any' and 'float' not in type:
+            if type != ANY and FLOAT not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type float', self.filename)
-            return Variable(value, 'float', float(value))
+            return Variable(value, FLOAT, float(value))
         # string
         elif value.startswith('"') and value.endswith('"'):
-            if type != 'any' and 'string' not in type:
+            if type != ANY and STRING not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type string', self.filename)
-            return Variable(value, 'string', value[1:-1])
+            return Variable(value, STRING, value[1:-1])
         # function
         elif value.startswith('$') and value.endswith('$'):
             variable: Variable = self.call(value, string=True)
-            if type != 'any' and variable.type not in type:
+            if type != ANY and variable.type not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type {variable.type}', self.filename)
             return variable
         # another variable
         elif value in self.scope:
-            if type != 'any' and self.scope[value].type not in type:
+            if type != ANY and self.scope[value].type not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type {self.scope[value].type}', self.filename)
             return self.scope[value]
         # error
@@ -227,10 +237,10 @@ class IPYP:
         if isnumber(name):
             raise EngineException('Variable name must not be numeric', self.filename)
         
-        if True in [i in name for i in FORBIDDEN_CHARS]:
+        if True in [i in name for i in FORBIDDEN_KEYWORD_CHARACTERS]:
             raise EngineException(
                 f'Variable name must not contain any of the following characters: '\
-                    +FORBIDDEN_CHARS,
+                    +FORBIDDEN_KEYWORD_CHARACTERS,
                 self.filename
             )
         # getting value
@@ -284,9 +294,6 @@ class IPYP:
                     raise EngineException(f'Unknown GOTO point: {args[0]}', self.filename)
                 index = goto_indexes[args[0]]
                 continue
-        
-            # todo gotos and if statements
-            # todo substractions and other operations
 
             
             # variable management
@@ -306,11 +313,11 @@ class IPYP:
                 if len(args) != 2:
                     raise EngineException(f'ADD requires exactly 2 arguments', self.filename)
                 self.check_keyword(args[0])
-                var = self.get_component(args[1], type=['integer','float'])
+                var = self.get_component(args[1], type=[INTEGER,FLOAT])
                 if args[0] not in self.scope:
                     raise EngineException(f'Unknown variable {args[0]}', self.filename)
                 
-                if var.type == 'float' and self.scope[args[0]].type == 'integer':
+                if var.type == FLOAT and self.scope[args[0]].type == INTEGER:
                     self.set_variable(args[0], str(self.scope[args[0]].value+var.value))
                 self.scope[args[0]].value += var.value
 
@@ -321,8 +328,8 @@ class IPYP:
             elif i.instruction == 'SETRES':
                 if len(args) != 2:
                     raise EngineException(f'SETRES requires exactly 2 arguments', self.filename)
-                x = self.get_component(args[0], type=['integer']).value
-                y = self.get_component(args[1], type=['integer']).value
+                x = self.get_component(args[0], type=[INTEGER]).value
+                y = self.get_component(args[1], type=[INTEGER]).value
                 if x <= 0 or y <= 0:
                     raise EngineException(f'Window size must be greater than 0', self.filename)
                 self.edit_window_size(x, y)
@@ -331,7 +338,7 @@ class IPYP:
             elif i.instruction == 'SETFPS':
                 if len(args) != 1:
                     raise EngineException(f'SETRES requires exactly 1 argument', self.filename)
-                fps = self.get_component(args[0], type=['integer']).value
+                fps = self.get_component(args[0], type=[INTEGER]).value
                 if fps < 0:
                     raise EngineException(f'Target FPS must be greater than or equal to zero', self.filename)
                 self.fps = fps
@@ -340,16 +347,16 @@ class IPYP:
             elif i.instruction == 'LOADSHEET':
                 if len(args) != 1:
                     raise EngineException(f'LOADSHEET requires exactly 1 argument', self.filename)
-                filename = self.get_component(args[0], type=['string']).value
+                filename = self.get_component(args[0], type=[STRING]).value
                 self.load_spritesheet(filename)
                 
             # fill window with color and cover everything
             elif i.instruction == 'FILL':
                 if len(args) != 3:
                     raise EngineException(f'FILL requires exactly 3 arguments', self.filename)
-                r = self.get_component(args[0], type=['integer']).value
-                g = self.get_component(args[1], type=['integer']).value
-                b = self.get_component(args[2], type=['integer']).value
+                r = self.get_component(args[0], type=[INTEGER]).value
+                g = self.get_component(args[1], type=[INTEGER]).value
+                b = self.get_component(args[2], type=[INTEGER]).value
                 if (r < 0 or r > 255) or (g < 0 or g > 255) or (b < 0 or b > 255):
                     raise EngineException(f'Color value must be from 0 to 255', self.filename)
                 surface.fill((r,g,b))
@@ -358,9 +365,9 @@ class IPYP:
             elif i.instruction == 'DRAWSPRITE':
                 if len(args) != 3:
                     raise EngineException(f'DRAWSPRITE requires exactly 3 arguments', self.filename)
-                sprite = self.get_component(args[0], type=['string']).value
-                x = self.get_component(args[1], type=['integer','float']).value
-                y = self.get_component(args[2], type=['integer','float']).value
+                sprite = self.get_component(args[0], type=[STRING]).value
+                x = self.get_component(args[1], type=[INTEGER,FLOAT]).value
+                y = self.get_component(args[2], type=[INTEGER,FLOAT]).value
                 if sprite not in self.sprites:
                     raise EngineException(f'Sprite {sprite} not found', self.filename)
                 surface.blit(self.sprites[sprite], (x, y))
@@ -438,10 +445,3 @@ class App:
             self.window.blit(surface, self.windowrect)
             pg.display.update()
             self.clock.tick(self.ipyp.fps)
-
-
-if __name__ == '__main__':
-    with open('mygame.ipyp', encoding='utf-8') as f:
-        ipyp = IPYP(f.read(),'mygame.ipyp')
-    app = App(ipyp)
-    app.run()
