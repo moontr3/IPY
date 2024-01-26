@@ -1,6 +1,6 @@
 from typing import *
 
-FORBIDDEN_KEYWORD_CHARACTERS: str = '"\'=,.$*'
+FORBIDDEN_KEYWORD_CHARACTERS: str = '"\'=,.$*#'
 
 ANY = None
 NULL = 0
@@ -17,3 +17,11 @@ TYPES = {
     'FLOAT': FLOAT,
     'STRING': STRING
 }
+
+LIST_TYPES = [
+    'NULL',
+    'BOOL',
+    'INTEGER',
+    'FLOAT',
+    'STRING'
+]

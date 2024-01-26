@@ -1,12 +1,12 @@
 import pygame as pg
 from typing import *
+import random
 
 from .errors import *
 from .spritesheet import IPYS
 from .functions import *
 from .constants import *
 
-# todo gotos and if statements
 # todo math library
 
 
@@ -52,7 +52,7 @@ class IPYP:
         self.functions: Dict[str, Function] = {} # list of functions
         self.loop: List[Instruction] = [] # list of instructions to run every frame
 
-        self.arrays: Dict[str, list] = {} # all arrays
+        self.arrays: Dict[str, List[Variable]] = {} # all arrays
         self.spritesheets: List[IPYS] = spritesheets # list of spritesheets
         self.sprites: Dict[str, pg.Surface] = {} # dict of sprites
         self.filename: str = filename # project filename
@@ -289,7 +289,7 @@ class IPYP:
         Returns a `Variable` object from a command argument.
         '''
         # null type
-        if value.upper() == NULL or value == 'None':
+        if value.upper() == NULL or value == 'NULL':
             if type != ANY and NULL not in type:
                 raise EngineException(f'Type {" or ".join(type)} required, but found type null', self.filename)
             return Variable(value, NULL, None)
@@ -329,7 +329,10 @@ class IPYP:
         # another variable
         elif value in self.scope:
             if type != ANY and self.scope[value].type not in type:
-                raise EngineException(f'Type {" or ".join(type)} required, but found type {self.scope[value].type}', self.filename)
+                raise EngineException(
+                    f'Type {" or ".join([LIST_TYPES[t] for t in type])} required, '\
+                        f'but found type {LIST_TYPES[self.scope[value].type]}', self.filename
+                )
             return self.scope[value]
         
         # error
@@ -338,6 +341,27 @@ class IPYP:
                 f'Unknown keyword {value} or such variable does not exist',
                 self.filename
             )
+        
+
+    def to_string(self, variable:Variable) -> Variable:
+        '''
+        Converts an expression to string.
+        '''
+        match variable.type:
+            case 0:
+                return Variable(variable.name, STRING, 'NULL')
+            
+            case 1:
+                return Variable(variable.name, STRING, 'TRUE' if variable.value else 'FALSE')
+            
+            case 2|3:
+                return Variable(variable.name, STRING, str(variable.value))
+            
+            case 4:
+                return variable
+            
+            case _:
+                return Variable(variable.name, STRING, 'NULL')
         
     
     def set_variable(self, name:str, value:str, force:bool=False):
@@ -355,6 +379,18 @@ class IPYP:
         value = self.get_component(value)
         # adding variable
         self.scope[name] = value
+
+
+    def create_array(self, name:str):
+        # checking name
+        if True in [i in name for i in FORBIDDEN_KEYWORD_CHARACTERS]:
+            raise EngineException(
+                f'Array name must not contain any of the following characters: '\
+                    +FORBIDDEN_KEYWORD_CHARACTERS,
+                self.filename
+            )
+        # creating array
+        self.arrays[name]: List[Variable] = []
 
          
     def run_code(self, code: List[Instruction]) -> Variable:
@@ -381,6 +417,11 @@ class IPYP:
                 # if there is an unexpected LOOP or ENDLOOP command
                 case 'LOOP'|'ENDLOOP'|'FUNCTION'|'ENDFUNCTION'|'ARGS'|'ENDARGS':
                     raise EngineException(f'Unexpected {i.instruction} command', self.filename, i.line)
+                
+                # printing in console
+                case 'LOG':
+                    string: str = " ".join([str(self.get_component(var).value) for var in args])
+                    print(string)
 
                 # finish execution of current block
                 case 'BREAK':
@@ -415,8 +456,7 @@ class IPYP:
                     if len(args) < 1:
                         raise EngineException(f'CALL requires at least 1 argument', self.filename, i.line)
                     self.check_keyword(args[0])
-                    func_args = args[1:]
-                    self.call(args[0], [self.get_component(arg) for arg in func_args])
+                    self.call(args[0], [self.get_component(arg) for arg in args[1:]])
 
                 
                 # variable management
@@ -424,9 +464,81 @@ class IPYP:
                 # assign a value to a global variable
                 case 'ASSIGN':
                     if len(args) != 2:
-                        raise EngineException(f'GLOBAL requires exactly 2 arguments', self.filename, i.line)
+                        raise EngineException(f'ASSIGN requires exactly 2 arguments', self.filename, i.line)
                     self.check_keyword(args[0])
                     self.set_variable(args[0], args[1])
+
+
+                # arrays
+
+                # create a new array
+                case 'ARRAY':
+                    if len(args) != 1:
+                        raise EngineException(f'ASSIGN requires exactly 1 argument', self.filename, i.line)
+                    self.check_keyword(args[0])
+                    self.create_array(args[0])
+
+                # append an element to the end of the array
+                case 'APPEND':
+                    if len(args) != 2:
+                        raise EngineException(f'APPEND requires exactly 2 arguments', self.filename, i.line)
+                    
+                    self.check_keyword(args[0])
+                    if args[0] not in self.arrays:
+                        raise EngineException(f'Unknown array {args[0]}', self.filename, i.line)
+                    var = self.get_component(args[1])
+                    self.arrays[args[0]].append(var)
+
+                # remove an element from the array by index
+                case 'REMOVE':
+                    if len(args) != 2:
+                        raise EngineException(f'REMOVE requires exactly 2 arguments', self.filename, i.line)
+                    
+                    self.check_keyword(args[0])
+                    if args[0] not in self.arrays:
+                        raise EngineException(f'Unknown array {args[0]}', self.filename, i.line)
+                    
+                    ind = self.get_component(args[1], [INTEGER]).value
+                    if ind >= len(self.arrays[args[0]]) or ind < 0:
+                        raise EngineException(
+                            f'Index {ind} in array {args[0]} out of bounds', self.filename, i.line
+                        )
+                    self.arrays[args[0]].pop(ind)
+
+                # create a new array
+                case 'LENGTH':
+                    if len(args) != 2:
+                        raise EngineException(f'LENGTH requires exactly 2 arguments', self.filename, i.line)
+                    self.check_keyword(args[0])
+                    self.check_keyword(args[1])
+                    if args[0] not in self.arrays:
+                        raise EngineException(f'Unknown array {args[0]}', self.filename, i.line)
+                    self.set_variable(args[1], str(len(self.arrays[args[0]])))
+
+                # create a new array
+                case 'SPLIT':
+                    if len(args) != 2:
+                        raise EngineException(f'SPLIT requires exactly 2 arguments', self.filename, i.line)
+                    string = self.get_component(args[0], [STRING]).value
+                    self.check_keyword(args[1])
+                    self.arrays[args[1]] = [Variable(str(ind), STRING, i) for ind, i in enumerate(list(string))]
+
+                # write the element from the array to a variable
+                case 'INDEX':
+                    if len(args) != 3:
+                        raise EngineException(f'INDEX requires exactly 3 arguments', self.filename, i.line)
+                    
+                    if args[0] not in self.arrays:
+                        raise EngineException(f'Unknown array {args[0]}', self.filename, i.line)
+                    ind = self.get_component(args[1], [INTEGER]).value
+                    self.check_keyword(args[2])
+                    
+                    if ind >= len(self.arrays[args[0]]) or ind < 0:
+                        raise EngineException(
+                            f'Index {ind} in array {args[0]} out of bounds', self.filename, i.line
+                        )
+                    
+                    self.scope[args[2]] = self.arrays[args[0]][ind]
 
 
                 # math
@@ -479,6 +591,47 @@ class IPYP:
                 
                     self.set_variable(args[0], str(self.scope[args[0]].value/var.value))
 
+                # convert a variable to an integer
+                case 'TOINT':
+                    if len(args) != 1:
+                        raise EngineException(f'TOINT requires exactly 1 argument', self.filename, i.line)
+                    
+                    self.check_keyword(args[0])
+                    if args[0] not in self.scope:
+                        raise EngineException(f'Unknown variable {args[0]}', self.filename, i.line)
+                    if self.scope[args[0]].type not in [INTEGER,FLOAT]:
+                        raise EngineException(f'TOINT requires an integer or a float', self.filename, i.line)
+                
+                    self.set_variable(args[0], str(int(self.scope[args[0]].value)))
+
+                # generate a random integer in range
+                case 'RNDINT':
+                    if len(args) != 3:
+                        raise EngineException(f'RNDINT requires exactly 3 arguments', self.filename, i.line)
+                    
+                    self.check_keyword(args[0])
+                    btm = self.get_component(args[1], type=[INTEGER]).value
+                    top = self.get_component(args[2], type=[INTEGER]).value
+                    param = sorted([btm,top])
+                
+                    self.set_variable(args[0], str(random.randint(*param)))
+
+
+                # variable management
+
+                # invert a boolean variable
+                case 'NOT':
+                    if len(args) != 1:
+                        raise EngineException(f'NOT requires exactly 1 argument', self.filename, i.line)
+                    
+                    self.check_keyword(args[0])
+                    if args[0] not in self.scope:
+                        raise EngineException(f'Unknown variable {args[0]}', self.filename, i.line)
+                    if self.scope[args[0]].type != BOOL:
+                        raise EngineException(f'NOT requires a bool variable', self.filename, i.line)
+
+                    self.scope[args[0]].value = not self.scope[args[0]].value
+
                 # invert a sign in a variable
                 case 'INVERT':
                     if len(args) != 1:
@@ -491,6 +644,67 @@ class IPYP:
                         raise EngineException(f'INVERT requires an integer or a float', self.filename, i.line)
 
                     self.scope[args[0]].value = -self.scope[args[0]].value
+
+                # split a string into an array of characters
+                case 'SPLIT':
+                    if len(args) != 2:
+                        raise EngineException(f'SPLIT requires exactly 2 arguments', self.filename, i.line)
+                    string = self.get_component(args[0], [STRING]).value
+                    self.check_keyword(args[1])
+                    self.arrays[args[1]] = [Variable(str(ind), STRING, i) for ind, i in enumerate(list(string))]
+
+                # convert a variable to string in place
+                case 'TOSTRING':
+                    if len(args) != 1:
+                        raise EngineException(f'TOSTRING requires exactly 1 argument', self.filename, i.line)
+                    self.check_keyword(args[0])
+                    if args[0] not in self.scope:
+                        raise EngineException(f'Unknown variable {args[0]}', self.filename, i.line)
+                    string = self.to_string(self.scope[args[0]])
+                    self.scope[args[0]] = string
+
+
+                # logic
+                    
+                # if the variable equals to another run the next line
+                case 'IFEQUALS':
+                    if len(args) != 2:
+                        raise EngineException(f'IFEQUALS requires exactly 2 arguments', self.filename, i.line)
+                    var1 = self.get_component(args[0]).value
+                    var2 = self.get_component(args[1]).value
+                    
+                    if not(var1 == var2):
+                        index += 1
+                    
+                # if the variable doesn't equal to another run the next line
+                case 'IFDIFF':
+                    if len(args) != 2:
+                        raise EngineException(f'IFDIFF requires exactly 2 arguments', self.filename, i.line)
+                    var1 = self.get_component(args[0]).value
+                    var2 = self.get_component(args[1]).value
+                    
+                    if not(var1 != var2):
+                        index += 1
+                    
+                # if the variable is greater than another run the next line
+                case 'IFGREATER':
+                    if len(args) != 2:
+                        raise EngineException(f'IFGREATER requires exactly 2 arguments', self.filename, i.line)
+                    var1 = self.get_component(args[0], [INTEGER,FLOAT]).value
+                    var2 = self.get_component(args[1], [INTEGER,FLOAT]).value
+                    
+                    if not(var1 > var2):
+                        index += 1
+                    
+                # if the variable is smaller than another run the next line
+                case 'IFSMALLER':
+                    if len(args) != 2:
+                        raise EngineException(f'IFSMALLER requires exactly 2 arguments', self.filename, i.line)
+                    var1 = self.get_component(args[0], [INTEGER,FLOAT]).value
+                    var2 = self.get_component(args[1], [INTEGER,FLOAT]).value
+                    
+                    if not(var1 < var2):
+                        index += 1
 
 
                 # window management

@@ -11,6 +11,7 @@ class IPYS:
         '''
         self.filename: str = filename # filename
         self.code: str = code # original source code
+        self.blank: Tuple[int, int, int] = None
 
         self.palette: Dict[str, Tuple[int, int, int]]\
             = self.process_palette(code) # dictionary of RGB colors in tuples
@@ -31,6 +32,21 @@ class IPYS:
         for line_num, i in enumerate(lines):
             if i.upper().startswith('=PALETTE '):
                 commands.append((line_num, i[9:]))
+            if i.upper().startswith('=BLANK '):
+                if len(i.split(' ')) != 4:
+                    raise SpritesheetException(
+                        f'BLANK must contain exactly 3 values',
+                        self.filename, line_num
+                    )
+                if False in [
+                    color.isdigit() and int(color) >= 0 and int(color) <= 255\
+                    for color in i.split(' ')[1:]
+                ]:
+                    raise SpritesheetException(
+                        f'Blank colors must be valid integers from 0 to 255',
+                        self.filename, line_num
+                    )
+                self.blank: Tuple[int, int, int] = ([int(i) for i in i.split(' ')[1:]])
 
         # converting commands to dict of colors
         palette: Dict[str, Tuple[int, int, int]] = {}
@@ -135,5 +151,6 @@ class IPYS:
             # yep
             surfaces[i] = pg.transform.rotate(surfaces[i], -90)
             surfaces[i] = pg.transform.flip(surfaces[i], True, False)
+            surfaces[i].set_colorkey(self.blank)
         
         return surfaces

@@ -29,9 +29,17 @@ def split_args(args:str) -> List[str]:
     in_function: bool = False # if the pointer is in a function
     out: List[str] = [] # arguments to return
     current_arg: str = ''
+    skip: bool = False
 
     for char in args:
-        if char == '"':
+        if skip:
+            skip = False
+            continue
+        
+        if char == '\\' and in_string:
+            skip = True
+            continue
+        elif char == '"':
             in_string = not in_string
             current_arg += '"'
         elif char == '$':
