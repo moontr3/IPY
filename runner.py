@@ -22,7 +22,7 @@ def run_app(path:str):
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print('Usage: python runner.py <file>', file=sys.stderr)
+        print('Usage: python runner.py <ipyp-file>', file=sys.stderr)
         sys.exit(1)
 
     file = os.path.abspath(sys.argv[1])

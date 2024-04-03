@@ -121,7 +121,7 @@ class IPYS:
                 )
             
             # converting image to colors
-            colors: List[List[Tuple(int,int,int)]] = []
+            colors: List[List[Tuple[int,int,int]]] = []
             for i in image_data:
                 row = []
                 for colorindex in i:

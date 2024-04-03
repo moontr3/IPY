@@ -390,7 +390,7 @@ class IPYP:
                 self.filename
             )
         # creating array
-        self.arrays[name]: List[Variable] = []
+        self.arrays[name] = []
 
          
     def run_code(self, code: List[Instruction]) -> Variable:
