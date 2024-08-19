@@ -25,3 +25,5 @@ Function calls on the other hand are much more important - they call a custom fu
 ### Functions
 
 Custom functions are defined using the command `FUNCTION functionname;`. Everything inbetwen this command and a next `ENDFUNCTION;` is considered a body of the function and will be run when the function is called.
+
+Anywhere between `FUNCTION` and `ENDFUNCTION` can be an `ARGS`..`ENDARGS` block. It it you describe all args on each line as follows `VARNAME TYPE`. You will be able to use `VARNAME` as a variable name. `TYPE` can be one of the following: `ANY`, `NULL`, `BOOL`, `INTEGER`, `FLOAT`, `STRING`.
