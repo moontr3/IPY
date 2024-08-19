@@ -26,4 +26,8 @@ Function calls on the other hand are much more important - they call a custom fu
 
 Custom functions are defined using the command `FUNCTION functionname;`. Everything inbetwen this command and a next `ENDFUNCTION;` is considered a body of the function and will be run when the function is called.
 
-Anywhere between `FUNCTION` and `ENDFUNCTION` can be an `ARGS`..`ENDARGS` block. It it you describe all args on each line as follows `VARNAME TYPE`. You will be able to use `VARNAME` as a variable name. `TYPE` can be one of the following: `ANY`, `NULL`, `BOOL`, `INTEGER`, `FLOAT`, `STRING`.
+Anywhere between `FUNCTION` and `ENDFUNCTION` can be an `ARGS`..`ENDARGS` block. It it you describe all args on each line as follows `VARNAME TYPE`. You will be able to use `*VARNAME` as a variable name (Note that `*VARIABLE` is immutable, so you'd need to clone it to another variable like this `ASSIGN VARIABLE *VARIABLE`). `TYPE` can be one of the following: `ANY`, `NULL`, `BOOL`, `INTEGER`, `FLOAT`, `STRING`.
+
+To call a function, you can use `CALL <FUNCTIONNAME>`, where `FUNCTIONNAME` is the name of your function.
+
+If you want to use the return value of the function somewhere, you need to wrap the function name and all args separated by spaces in dollar signs, like this: `$GETSUM X 10$`
