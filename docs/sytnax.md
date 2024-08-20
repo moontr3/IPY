@@ -31,3 +31,69 @@ Anywhere between `FUNCTION` and `ENDFUNCTION` can be an `ARGS`..`ENDARGS` block.
 To call a function, you can use `CALL <FUNCTIONNAME>`, where `FUNCTIONNAME` is the name of your function.
 
 If you want to use the return value of the function somewhere, you need to wrap the function name and all args separated by spaces in dollar signs, like this: `$GETSUM X 10$`
+
+
+### Loop
+
+To actually run your program, you need to have a `LOOP`..`ENDLOOP` block in your code. In this block you need to put code that will run X amount of times per second. To set this X value, you need to use a `SETFPS` command somewhere before the `LOOP`. Also you'll need to set window resolution using `SETRES x y`, or the code won't run.
+
+To erase everything from the window, use `FILL r g b` with your desired RGB color.
+
+More about window commands [here](docs/commands.md)
+
+
+### Sprites
+
+The only thing you can draw in this engine is predefined sprites that should be stored in a `.ipys` file.
+
+First you'll need to create a palette via a `=PALETTE` command. It accepts 4 arguments separated by spaces - a symbol and 3 RGB values. You can also add a `=BLANK` command with 3 RGB values. This color will be used as transparent within the spritesheet.
+
+After declaring your palette, you'll need to create the images themselves. This can be done with the `=IMAGE` command. It accepts 3 arguments - a name, width and height.
+
+After the `=IMAGE` command you'll need to put your image line-by-line. Each symbol in a line will become a color defined by the `=PALETTE` command with the same symbol.
+
+Here's an example file for a snake game I was making:
+
+```
+=PALETTE . 0 0 0
+=PALETTE # 255 255 255
+=PALETTE @ 128 128 128
+=PALETTE % 255 0 0
+=PALETTE * 50 50 0
+=BLANK 0 0 0
+
+=IMAGE HEAD 8 8
+########
+########
+########
+########
+########
+########
+########
+########
+
+=IMAGE TAIL 8 8
+........
+.@@@@@@.
+.@@@@@@.
+.@@@@@@.
+.@@@@@@.
+.@@@@@@.
+.@@@@@@.
+........
+
+=IMAGE FOOD 8 8
+....*...
+...*....
+.%%**%%.
+%@@%%%%%
+%@%%%%%%
+.%%%%%%.
+.%%%%%%.
+..%..%..
+```
+
+
+### Input
+
+_Not yet implemented. Because the engine is shit._
